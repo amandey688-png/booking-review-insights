@@ -4,7 +4,54 @@ Collects public Booking.com guest reviews for four Azzurro properties in Sydney,
 with the topics guests talk about, and shows the result in a dashboard that hotel operations staff
 can use without technical knowledge.
 
-## Architecture
+## Contents
+
+- [Deliverables](#deliverables): working local application and sample review data
+- [Setup and installation](#setup-and-installation)
+- [How to run the scraper and frontend](#how-to-run-the-scraper-and-frontend)
+- [Architecture overview](#architecture-overview) · [Folder structure](#folder-structure) · [Data model](#data-model)
+- [Review collection method](#review-collection-method) · [Classification method](#classification-method)
+- [Known limitations and assumptions](#known-limitations-and-assumptions)
+- [Dashboard guide](#dashboard-guide-for-operations-staff) · [Automation](#automation) · [Deploying to Vercel](#deploying-the-dashboard-to-vercel) · [What I'd do next](#what-id-do-next)
+
+## Deliverables
+
+| Deliverable | Where |
+|---|---|
+| Working local application | `dashboard/` - see [Quick start](#quick-start-working-local-application) below |
+| Sample review data | [`data/sample_reviews.csv`](data/sample_reviews.csv) and [`data/sample_reviews.json`](data/sample_reviews.json) |
+| Scraper | `scraper/` |
+| This README | setup, how to run, architecture, collection method, limitations |
+
+### Quick start (working local application)
+
+Needs Node.js 18+ only. No database or keys are required: without keys the dashboard shows the
+sample review data in `data/`.
+
+```bash
+cd dashboard
+npm install
+npm run dev        # open the address it prints, normally http://localhost:3000
+```
+
+### Sample review data
+
+412 real public reviews collected on 25 November 2026 from the four listed properties
+(review dates 20 March - 25 November 2026):
+
+| Property | Booking.com page | Reviews |
+|---|---|---|
+| Olympic Hotel Paddington | `olympic-paddington` | 74 |
+| Potts Point | `venus-potts-point-sydney` | 100 |
+| Central Sydney | `venus-surry-hills` | 118 |
+| Darling Harbour | `chateau-de-venus` | 120 |
+
+Columns: `review_key`, `property_id`, `score`, `title`, `liked_text`, `disliked_text`,
+`reviewer_name`, `reviewer_country`, `traveller_type`, `room_type`, `nights`, `stay_month`,
+`review_date`, `sentiment`, `first_seen_at`, `last_seen_at`, `positive_topics`, `negative_topics`
+(topics are `|`-separated in the CSV, arrays in the JSON). Regenerate with `python export_sample.py`.
+
+## Architecture overview
 
 ```
                     daily (GitHub Actions, or a local scheduled task)
@@ -42,7 +89,7 @@ can use without technical knowledge.
 | `data/` | Sample review data exported from a real run |
 | `.github/workflows/scrape.yml` | Daily scheduled scrape |
 
-## Setup
+## Setup and installation
 
 **Database (once).** In Supabase -> SQL Editor, paste and run, in this order:
 `supabase/schema.sql`, `supabase/migrations/002_quality.sql`, `supabase/migrations/003_views.sql`.
@@ -78,7 +125,7 @@ cd dashboard
 npm install
 ```
 
-## Running
+## How to run the scraper and frontend
 
 ```bash
 # scraper (from scraper/, venv active)
@@ -95,7 +142,7 @@ npm test                              # metrics tests (vitest)
 npm run build                         # production build
 ```
 
-A Chromium window opens while the scraper runs - that is expected (see "Collection method").
+A Chromium window opens while the scraper runs - that is expected (see "Review collection method").
 
 Without `SUPABASE_*` in `.env` the scraper stores to `data/reviews.jsonl` and the dashboard reads
 `data/sample_reviews.json`, so everything can be tried without a database.
@@ -112,7 +159,7 @@ Without `SUPABASE_*` in `.env` the scraper stores to `data/reviews.jsonl` and th
 
 Row level security allows anyone with the publishable key to **read** only. Writes need the secret key.
 
-## Collection method
+## Review collection method
 
 - **Why a browser.** Booking.com has no public review API and retired the old `/reviewlist.html`
   endpoint. Reviews are loaded by JavaScript inside the hotel page, so the scraper drives a real
