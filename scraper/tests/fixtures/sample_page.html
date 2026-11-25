@@ -1,30 +1,32 @@
-<!-- SYNTHETIC test fixture that mimics Booking.com review-list markup. Not real review data. -->
-<ul class="review_list">
-<li class="review_list_new_item_block" data-review-url="abc123">
-  <div class="c-review-block">
-    <div class="bui-avatar-block__title">Sarah</div>
-    <div class="bui-avatar-block__subtitle">Australia</div>
-    <div class="c-review-block__room-link"><div class="bui-list__body">Deluxe Queen Room</div></div>
-    <div class="c-review-block__stay-date">2 nights · <span class="c-review-block__date">October 2026</span></div>
-    <div class="review-panel-wide__traveller_type"><div class="bui-list__body">Couple</div></div>
-    <div class="c-review-block__right">
-      <span class="c-review-block__date">Reviewed: 12 November 2026</span>
-      <h3 class="c-review-block__title">“Great location”</h3>
-      <div class="bui-review-score__badge">8.0</div>
-      <div class="c-review__row"><p class="c-review__body">Liked · Friendly staff and close to the station.</p></div>
-      <div class="c-review__row lalala"><p class="c-review__body">Disliked · Bathroom was not clean and the street was noisy.</p></div>
-    </div>
-  </div>
-</li>
-<li class="review_list_new_item_block">
-  <div class="c-review-block">
-    <div class="bui-avatar-block__title">Tom</div>
-    <div class="c-review-block__right">
-      <span class="c-review-block__date">Reviewed: 3 November 2026</span>
-      <div class="bui-review-score__badge">4.0</div>
-      <div class="c-review__row"><p class="c-review__body">Nothing</p></div>
-      <div class="c-review__row lalala"><p class="c-review__body">Check-in took 40 minutes.</p></div>
-    </div>
-  </div>
-</li>
-</ul>
+<!-- Synthetic review cards using Booking.com's data-testid structure (not real reviews). -->
+<div data-testid="review-card"><div data-testid="review" aria-label="Review card" role="group">
+  <div data-testid="review-avatar"><div><h4>Alex</h4></div><div><img><span> Australia</span></div></div>
+  <div data-testid="review-stay-info"><ul>
+    <li><span data-testid="review-room-name">Superior Double Room (Ensuite)</span></li>
+    <li><span data-testid="review-num-nights">2 nights&nbsp;·&nbsp;</span><span data-testid="review-stay-date">November 2026</span></li>
+    <li><span data-testid="review-traveler-type">Couple</span></li>
+  </ul></div>
+  <span data-testid="review-date">Reviewed: 12 November 2026</span>
+  <h4 data-testid="review-title">Great location</h4>
+  <div data-testid="review-score"><div><div>Scored 8.0 </div><div aria-hidden="true">8.0</div></div></div>
+  <div data-testid="review-positive-text"><div><span>Friendly staff and close to the station.</span></div></div>
+  <div data-testid="review-negative-text"><div><span>Bathroom was not clean.</span></div></div>
+</div></div>
+<div data-testid="review-card"><div data-testid="review" aria-label="Review card" role="group">
+  <div data-testid="review-avatar"><div><h4>Sam</h4></div><div><img><span> New Zealand</span></div></div>
+  <div data-testid="review-stay-info"><ul>
+    <li><span data-testid="review-room-name">Budget Single Room</span></li>
+    <li><span data-testid="review-num-nights">1 night&nbsp;·&nbsp;</span><span data-testid="review-stay-date">October 2026</span></li>
+    <li><span data-testid="review-traveler-type">Solo traveller</span></li>
+  </ul></div>
+  <span data-testid="review-date">Reviewed: 3 November 2026</span>
+  <h4 data-testid="review-title">Disappointing</h4>
+  <div data-testid="review-score"><div><div>Scored 4.0 </div><div aria-hidden="true">4.0</div></div></div>
+  <div data-testid="review-positive-text"><div><span>Nothing</span></div></div>
+  <div data-testid="review-negative-text"><div><span>Noisy and the room was dirty.</span></div></div>
+</div></div>
+<div data-testid="review-card"><div data-testid="review" aria-label="Review card" role="group">
+  <div data-testid="review-avatar"><div><h4>Pat</h4></div><div><img><span> Australia</span></div></div>
+  <h4 data-testid="review-title">Card with no date</h4>
+  <div data-testid="review-score"><div><div>Scored 7.0 </div><div aria-hidden="true">7.0</div></div></div>
+</div></div>

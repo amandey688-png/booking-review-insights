@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.local.example
 
 # python
 __pycache__/
@@ -12,7 +13,13 @@ __pycache__/
 # node
 node_modules/
 .next/
+next-env.d.ts
+*.tsbuildinfo
 
 # scraper debug dumps (raw HTML)
 data/debug/
 data/*.tmp
+
+# scraper local working store (data/sample_reviews.* is the committed export)
+data/reviews.jsonl
+data/review_topics.json

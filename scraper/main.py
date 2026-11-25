@@ -11,10 +11,9 @@ import logging
 import sys
 from pathlib import Path
 
-import httpx
-
+import classify
 import config
-from fetcher import BlockedError, fetch_review_page, polite_sleep
+from browser import BlockedError, iter_review_pages, launch, polite_sleep, sync_playwright
 from parser import LayoutChangedError, parse_reviews
 from store import get_store
 
@@ -26,30 +25,26 @@ DEBUG_DIR = Path(__file__).resolve().parent.parent / "data" / "debug"
 STOP_AFTER_KNOWN_PAGES = 1
 
 
-def scrape_property(client: httpx.Client, store, prop: dict, full: bool) -> dict:
+def scrape_property(browser, store, prop: dict, full: bool) -> dict:
     pid = prop["id"]
     run_id = store.start_run(pid)
     known = store.existing_keys(pid)
-    stats = {"pages_fetched": 0, "reviews_seen": 0, "reviews_new": 0}
+    stats = {"pages_fetched": 0, "reviews_seen": 0, "reviews_new": 0, "reviews_skipped": 0}
     known_pages = 0
     status, error = "ok", None
 
     try:
-        for page in range(config.MAX_PAGES_PER_PROPERTY):
-            offset = page * config.PAGE_SIZE
-            html = fetch_review_page(client, prop["slug"], offset)
+        for page_no, html in enumerate(iter_review_pages(browser, prop["slug"]), start=1):
             stats["pages_fetched"] += 1
             try:
-                reviews = parse_reviews(html, pid)
+                reviews, skipped = parse_reviews(html, pid)
             except LayoutChangedError:
                 DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-                (DEBUG_DIR / f"{pid}_offset{offset}.html").write_text(html, encoding="utf-8")
+                (DEBUG_DIR / f"{pid}_page{page_no}.html").write_text(html, encoding="utf-8")
                 raise
-            if not reviews:
-                log.info("%s: no more reviews at offset %s", pid, offset)
-                break
 
             stats["reviews_seen"] += len(reviews)
+            stats["reviews_skipped"] += skipped
             stats["reviews_new"] += store.upsert_reviews(reviews)
 
             if not full and all(r["review_key"] in known for r in reviews):
@@ -57,7 +52,9 @@ def scrape_property(client: httpx.Client, store, prop: dict, full: bool) -> dict
                 if known_pages >= STOP_AFTER_KNOWN_PAGES:
                     log.info("%s: reached already-stored reviews, stopping (incremental)", pid)
                     break
-            polite_sleep()
+            if page_no >= config.MAX_PAGES_PER_PROPERTY:
+                log.warning("%s: hit MAX_PAGES=%s, stopping", pid, config.MAX_PAGES_PER_PROPERTY)
+                break
     except BlockedError as e:
         status, error = "partial", str(e)
         log.error("%s", e)
@@ -70,8 +67,8 @@ def scrape_property(client: httpx.Client, store, prop: dict, full: bool) -> dict
         log.exception("%s failed", pid)
 
     store.finish_run(run_id, status=status, error=error, **stats)
-    log.info("%s: %s | pages=%s seen=%s new=%s", pid, status,
-             stats["pages_fetched"], stats["reviews_seen"], stats["reviews_new"])
+    log.info("%s: %s | pages=%s seen=%s new=%s skipped=%s", pid, status, stats["pages_fetched"],
+             stats["reviews_seen"], stats["reviews_new"], stats["reviews_skipped"])
     return {"property": pid, "status": status, **stats}
 
 
@@ -84,15 +81,20 @@ def main() -> int:
     store = get_store()
     props = [p for p in config.PROPERTIES if not args.only or p["id"] == args.only]
     results = []
-    with httpx.Client(http2=False) as client:
+    with sync_playwright() as pw:
+        browser = launch(pw)
         for p in props:
-            results.append(scrape_property(client, store, p, args.full))
+            results.append(scrape_property(browser, store, p, args.full))
             polite_sleep()
+        browser.close()
+
+    log.info("classified topics for %s reviews", classify.classify_all(store))
 
     failed = [r for r in results if r["status"] == "failed"]
     print("\nSUMMARY")
     for r in results:
-        print(f"  {r['property']:<16} {r['status']:<8} new={r['reviews_new']:<4} seen={r['reviews_seen']}")
+        print(f"  {r['property']:<16} {r['status']:<8} new={r['reviews_new']:<4} seen={r['reviews_seen']:<4} "
+              f"skipped={r['reviews_skipped']}")
     return 1 if failed else 0
 
 

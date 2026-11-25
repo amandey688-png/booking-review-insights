@@ -1,4 +1,4 @@
-"""Turns a Booking.com review-list HTML page into clean review dicts.
+"""Turns Booking.com review-card HTML into clean review dicts.
 
 Pure functions, no network - so it can be unit-tested against saved HTML.
 """
@@ -50,21 +50,11 @@ def parse_score(raw: str | None) -> float | None:
     return val if 1 <= val <= 10 else None
 
 
-def _review_sections(item: Node) -> tuple[str | None, str | None]:
-    """Returns (liked_text, disliked_text)."""
-    liked, disliked = [], []
-    for row in item.css(S["review_rows"]):
-        body = row.css_first(S["review_text"])
-        if body is None:
-            continue
-        text = re.sub(r"\s+", " ", body.text(separator=" ")).strip()
-        # Booking prefixes like "Liked ·" / "Disliked ·"
-        text = re.sub(r"^(Liked|Disliked)\s*[·:]\s*", "", text)
-        if not text or text.lower() in {"nothing", "n/a", "na", "-"}:
-            continue
-        classes = (row.attributes.get("class") or "").split()
-        (disliked if S["negative_row_class"] in classes else liked).append(text)
-    return (" ".join(liked) or None, " ".join(disliked) or None)
+def _clean_section(text: str | None) -> str | None:
+    """Drops empty answers such as 'Nothing' so they are not counted as feedback."""
+    if not text or text.lower().strip(" .!") in {"nothing", "n/a", "na", "none", "-", ""}:
+        return None
+    return text
 
 
 def make_review_key(property_id: str, booking_id: str | None, name: str | None,
@@ -87,46 +77,38 @@ def derive_sentiment(score: float | None) -> str | None:
     return "negative"
 
 
-def parse_reviews(html: str, property_id: str) -> list[dict]:
+def parse_reviews(html: str, property_id: str) -> tuple[list[dict], int]:
+    """Returns (reviews, skipped). Skipped = cards without a usable date or score."""
     tree = HTMLParser(html)
     items = tree.css(S["review_item"])
 
     if not items:
-        # Real "no more reviews" page vs. layout change / block page
-        if tree.css_first(".c-review-block") or "review_list" in html and len(html) > 50_000:
-            raise LayoutChangedError(f"{property_id}: review blocks present but selectors matched nothing")
-        return []
+        # Real "no more reviews" page vs. layout change
+        if 'data-testid="review' in html:
+            raise LayoutChangedError(f"{property_id}: review markup present but no review cards matched")
+        return [], 0
 
-    out: list[dict] = []
+    out: dict[str, dict] = {}
+    skipped = 0
     for item in items:
-        review_url = item.attributes.get("data-review-url") or ""
-        booking_id = review_url or None
-
         title = _text(item, S["title"])
         if title:
             title = title.strip("“”\"")
-        liked, disliked = _review_sections(item)
+        liked = _clean_section(_text(item, S["liked"]))
+        disliked = _clean_section(_text(item, S["disliked"]))
         rdate = parse_review_date(_text(item, S["review_date"]))
         name = _text(item, S["reviewer_name"])
         score = parse_score(_text(item, S["score"]))
 
-        if rdate is None:
-            # Without a date the review is useless for weekly KPIs - skip, but don't crash.
+        if rdate is None or score is None:
+            # Without a date or score the review is useless for weekly KPIs - skip, don't crash.
+            skipped += 1
             continue
 
-        nights = None
         n = re.search(r"(\d+)\s+nights?", _text(item, S["nights"]) or "")
-        if n:
-            nights = int(n.group(1))
-
-        stay = _text(item, S["stay_info"])
-        stay_month = None
-        if stay:
-            sm = re.search(r"([A-Za-z]+ \d{4})", stay)
-            stay_month = sm.group(1) if sm else None
-
-        out.append({
-            "review_key": make_review_key(property_id, booking_id, name, rdate, title, liked, disliked),
+        key = make_review_key(property_id, None, name, rdate, title, liked, disliked)
+        out[key] = {   # dict keyed by review_key: a card repeated on the page is stored once
+            "review_key": key,
             "property_id": property_id,
             "score": score,
             "title": title,
@@ -136,9 +118,11 @@ def parse_reviews(html: str, property_id: str) -> list[dict]:
             "reviewer_country": _text(item, S["country"]),
             "traveller_type": _text(item, S["traveller"]),
             "room_type": _text(item, S["room_type"]),
-            "nights": nights,
-            "stay_month": stay_month,
+            "nights": int(n.group(1)) if n else None,
+            "stay_month": _text(item, S["stay_month"]),
             "review_date": rdate.isoformat(),
             "sentiment": derive_sentiment(score),
-        })
-    return out
+        }
+    if not out:
+        raise LayoutChangedError(f"{property_id}: {len(items)} review cards found but none could be read")
+    return list(out.values()), skipped

@@ -44,6 +44,22 @@ class LocalStore:
         tmp.replace(self.path)   # atomic write - a crash never leaves a half-written file
         return new
 
+    def all_reviews(self) -> list[dict]:
+        return list(self.rows.values())
+
+    def _topics_path(self) -> Path:
+        return self.path.with_name("review_topics.json")
+
+    def replace_topics(self, topics: dict[str, list[tuple[str, str]]]) -> None:
+        """topics: review_key -> [(topic, polarity), ...]. Replaces what was stored for those keys."""
+        stored = self.topics()
+        stored.update({k: [list(t) for t in v] for k, v in topics.items()})
+        self._topics_path().write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    def topics(self) -> dict[str, list[list[str]]]:
+        path = self._topics_path()
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
     def start_run(self, property_id: str) -> int | None:
         return None
 
@@ -56,15 +72,40 @@ class SupabaseStore:
         from supabase import create_client
         self.db = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
 
-    def existing_keys(self, property_id: str) -> set[str]:
-        keys, start = set(), 0
+    def _fetch_all(self, table: str, columns: str, order: str, **eq) -> list[dict]:
+        rows, start = [], 0
         while True:
-            res = (self.db.table("reviews").select("review_key")
-                   .eq("property_id", property_id).range(start, start + 999).execute())
-            keys.update(r["review_key"] for r in res.data)
-            if len(res.data) < 1000:
-                return keys
+            q = self.db.table(table).select(columns).order(order)
+            for col, val in eq.items():
+                q = q.eq(col, val)
+            page = q.range(start, start + 999).execute().data
+            rows.extend(page)
+            if len(page) < 1000:
+                return rows
             start += 1000
+
+    def existing_keys(self, property_id: str) -> set[str]:
+        rows = self._fetch_all("reviews", "review_key", "review_key", property_id=property_id)
+        return {r["review_key"] for r in rows}
+
+    def all_reviews(self) -> list[dict]:
+        return self._fetch_all("reviews", "*", "review_key")
+
+    def replace_topics(self, topics: dict[str, list[tuple[str, str]]]) -> None:
+        """Idempotent: delete then insert, per review_key, in batches."""
+        keys = list(topics)
+        for i in range(0, len(keys), 100):
+            chunk = keys[i:i + 100]
+            self.db.table("review_topics").delete().in_("review_key", chunk).execute()
+            rows = [{"review_key": k, "topic": t, "polarity": p} for k in chunk for t, p in topics[k]]
+            if rows:
+                self.db.table("review_topics").insert(rows).execute()
+
+    def topics(self) -> dict[str, list[list[str]]]:
+        out: dict[str, list[list[str]]] = {}
+        for r in self._fetch_all("review_topics", "*", "review_key"):
+            out.setdefault(r["review_key"], []).append([r["topic"], r["polarity"]])
+        return out
 
     def upsert_reviews(self, reviews: list[dict]) -> int:
         if not reviews:
@@ -81,7 +122,14 @@ class SupabaseStore:
 
     def finish_run(self, run_id, **fields) -> None:
         fields["finished_at"] = datetime.now(timezone.utc).isoformat()
-        self.db.table("scrape_runs").update(fields).eq("id", run_id).execute()
+        try:
+            self.db.table("scrape_runs").update(fields).eq("id", run_id).execute()
+        except Exception as e:
+            if "reviews_skipped" not in str(e):
+                raise
+            log.warning("scrape_runs.reviews_skipped missing - apply supabase/migrations/002_quality.sql")
+            fields.pop("reviews_skipped")
+            self.db.table("scrape_runs").update(fields).eq("id", run_id).execute()
 
 
 def get_store():
